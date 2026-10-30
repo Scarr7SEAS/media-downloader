@@ -151,70 +151,66 @@ def probe_media(file_path: Path) -> dict:
 
 def make_cross_platform_compatible(input_path: Path, quality: str = "full") -> Path:
     """
-    Ensures video has H.264 video, AAC audio, yuv420p pixel format, and +faststart flag.
-    - If quality == 'full':
-        - If already H.264 + yuv420p: performs bit-exact copy (-c copy), ZERO compression!
-        - If video is already H.264 + yuv420p and only audio is non-AAC: copies video stream untouched (-c:v copy).
-        - If source is VP9/AV1: transcodes to H.264 using CRF 17 (visually lossless master quality)
-          preserving the exact original resolution (e.g. 4K) and original framerate (e.g. 60fps).
-    - If quality == 'medium': uses standard CRF 22 and 192k AAC.
+    Ensures video is 100% compatible with WhatsApp (sending, forwarding, and Status),
+    iOS/Safari/QuickTime, Android, and web players without hanging.
+    Key fixes for WhatsApp 'loading mentok' issue:
+    1. Reset presentation timestamps to 0.000s using 'setpts=PTS-STARTPTS' & 'asetpts=PTS-STARTPTS'.
+       (Non-zero start times in YouTube/TikTok cause Android MediaCodec to loop forever).
+    2. Enforce Constant Frame Rate (-fps_mode cfr) to eliminate VFR jitter.
+    3. Ensure dimensions are divisible by 2 using 'scale=trunc(iw/2)*2:trunc(ih/2)*2'.
+    4. Set H.264 profile to Main / Level 4.0 (for medium) or High / Level 4.2 (for full).
+    5. Force stereo audio (-ac 2) and standard 44.1kHz (-ar 44100).
+    6. Enable +faststart so moov atom is at the beginning.
     """
     if not input_path.exists() or input_path.suffix.lower() != '.mp4':
         return input_path
 
-    probe = probe_media(input_path)
     temp_output = input_path.parent / f"opt_{uuid.uuid4().hex[:8]}_{input_path.name}"
 
-    is_h264 = probe["is_h264"]
-    is_yuv420p = probe["is_yuv420p"]
-    is_aac = probe["is_aac"]
-    has_audio = probe["a_codec"] is not None
-
-    if is_h264 and is_yuv420p and (is_aac or not has_audio):
-        # 100% compliant: Zero re-encoding, bit-exact original copy
-        logger.info(f"Stream already H.264 + AAC + yuv420p. Fast remuxing with FastStart: {input_path.name}")
-        cmd = [
-            'ffmpeg', '-y', '-i', str(input_path),
-            '-c', 'copy',
-            '-movflags', '+faststart',
-            str(temp_output)
-        ]
-    elif is_h264 and is_yuv420p and not is_aac:
-        # Video is 100% compliant untouched: Copy video bit-exact, only normalize audio to AAC
-        logger.info(f"Video is H.264 + yuv420p. Keeping video untouched (-c:v copy), converting audio to AAC 320k: {input_path.name}")
-        audio_br = '320k' if quality == 'full' else '192k'
-        cmd = [
-            'ffmpeg', '-y', '-i', str(input_path),
-            '-c:v', 'copy',
-            '-c:a', 'aac',
-            '-b:a', audio_br,
-            '-movflags', '+faststart',
-            str(temp_output)
-        ]
+    if quality == "medium":
+        # Ultra-compatible profile tailored for WhatsApp Chat, Forwarding & Status
+        crf = '22'
+        audio_br = '192k'
+        profile = 'main'
+        level = '4.0'
+        # Scale to max 720p while preserving aspect ratio and ensuring even dimensions
+        vf_filter = "setpts=PTS-STARTPTS,scale='min(1280,iw)':min'(720,ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2"
     else:
-        # Codec is VP9, AV1, or non-standard pixel format.
-        # Transcode preserving exact original resolution and framerate
-        crf = '17' if quality == 'full' else '22'
-        audio_br = '320k' if quality == 'full' else '192k'
-        logger.info(f"Transcoding to universally compatible H.264 yuv420p (CRF {crf}, Audio {audio_br}): {input_path.name}")
-        cmd = [
-            'ffmpeg', '-y', '-i', str(input_path),
-            '-c:v', 'libx264',
-            '-preset', 'veryfast',
-            '-crf', crf,
-            '-pix_fmt', 'yuv420p',
-            '-c:a', 'aac',
-            '-b:a', audio_br,
-            '-movflags', '+faststart',
-            str(temp_output)
-        ]
+        # Full original quality (up to 4K 60fps) with visually lossless master CRF 17
+        crf = '17'
+        audio_br = '320k'
+        profile = 'high'
+        level = '4.2'
+        # Keep exact original resolution, ensure even dimensions
+        vf_filter = "setpts=PTS-STARTPTS,scale=trunc(iw/2)*2:trunc(ih/2)*2"
+
+    logger.info(f"Optimizing video for 100% WhatsApp & cross-platform compatibility (CRF {crf}, {quality}): {input_path.name}")
+
+    cmd = [
+        'ffmpeg', '-y', '-i', str(input_path),
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', crf,
+        '-profile:v', profile,
+        '-level', level,
+        '-pix_fmt', 'yuv420p',
+        '-vf', vf_filter,
+        '-fps_mode', 'cfr',
+        '-c:a', 'aac',
+        '-b:a', audio_br,
+        '-ar', '44100',
+        '-ac', '2',
+        '-af', 'asetpts=PTS-STARTPTS',
+        '-movflags', '+faststart',
+        str(temp_output)
+    ]
 
     try:
         subprocess.run(cmd, capture_output=True, check=True)
         # Replace original file with optimized one
         input_path.unlink(missing_ok=True)
         temp_output.rename(input_path)
-        logger.info(f"Optimization complete for: {input_path.name}")
+        logger.info(f"WhatsApp & universal optimization complete for: {input_path.name}")
         return input_path
     except Exception as e:
         logger.error(f"FFmpeg optimization error: {e}")
