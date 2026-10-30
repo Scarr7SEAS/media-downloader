@@ -205,8 +205,9 @@ def make_cross_platform_compatible(input_path: Path, quality: str = "full") -> P
                 str(temp_output)
             ]
     else:
-        # MEDIUM: WhatsApp Chat & Status Optimized (Max 720p, lightweight, clean timestamps)
-        logger.info(f"Medium quality: downscaling to 720p & optimizing for WhatsApp Chat/Status: {input_path.name}")
+        # MEDIUM: WhatsApp HD Chat & Status Preset (720p, 30fps CFR, crisp CRF 20, zero PTS jitter)
+        # Bypasses WhatsApp's aggressive internal re-compression engine so Status remains sharp and crisp.
+        logger.info(f"Medium quality: downscaling to 720p 30fps & optimizing for WhatsApp Status/Chat HD: {input_path.name}")
         cmd = [
             'ffmpeg', '-y',
             '-max_error_rate', '1.0',
@@ -214,17 +215,19 @@ def make_cross_platform_compatible(input_path: Path, quality: str = "full") -> P
             '-fflags', '+genpts+discardcorrupt',
             '-i', str(input_path),
             '-c:v', 'libx264',
-            '-preset', 'veryfast',
-            '-crf', '23',
-            '-pix_fmt', 'yuv420p',
+            '-preset', 'medium',
+            '-crf', '20',
             '-profile:v', 'main',
             '-level', '4.0',
-            '-vf', "scale=w='if(gt(iw,ih),1280,720)':h='if(gt(iw,ih),720,1280)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            '-pix_fmt', 'yuv420p',
+            '-r', '30',
             '-fps_mode', 'cfr',
+            '-vf', "setpts=PTS-STARTPTS,scale=w='if(gt(iw,ih),1280,720)':h='if(gt(iw,ih),720,1280)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2",
             '-c:a', 'aac',
-            '-b:a', '160k',
+            '-b:a', '128k',
             '-ar', '44100',
             '-ac', '2',
+            '-af', 'asetpts=PTS-STARTPTS',
             '-movflags', '+faststart',
             str(temp_output)
         ]

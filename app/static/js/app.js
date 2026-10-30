@@ -138,9 +138,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (data.max_height >= 1080) {
                     fullQualityBadge.textContent = 'Full HD';
                 } else {
-                    fullQualityBadge.textContent = 'Original';
+                    fullQualityBadge.textContent = 'Original Master';
                 }
-                fullQualityDesc.textContent = `Resolusi original ${data.max_resolution} tanpa kompresi resolusi, visual tajam & kompatibel semua platform.`;
+                fullQualityDesc.textContent = `100% berkas murni tanpa kompresi (${data.max_resolution}). Kirim via WA Dokumen agar kualitas tetap utuh.`;
             }
 
             previewCard.classList.remove('hidden');
