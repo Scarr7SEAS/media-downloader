@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  downloader:
+    build: .
+    container_name: universal_media_downloader
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./downloads:/app/downloads
+    environment:
+      - PYTHONUNBUFFERED=1
