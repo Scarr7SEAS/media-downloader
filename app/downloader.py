@@ -151,69 +151,93 @@ def probe_media(file_path: Path) -> dict:
 
 def make_cross_platform_compatible(input_path: Path, quality: str = "full") -> Path:
     """
-    Ensures video is 100% compatible with WhatsApp (sending, forwarding, and Status),
-    iOS/Safari/QuickTime, Android, and web players without hanging.
-    Key fixes for WhatsApp 'loading mentok' issue:
-    1. Reset presentation timestamps to 0.000s using 'setpts=PTS-STARTPTS' & 'asetpts=PTS-STARTPTS'.
-       (Non-zero start times in YouTube/TikTok cause Android MediaCodec to loop forever).
-    2. Enforce Constant Frame Rate (-fps_mode cfr) to eliminate VFR jitter.
-    3. Ensure dimensions are divisible by 2 using 'scale=trunc(iw/2)*2:trunc(ih/2)*2'.
-    4. Set H.264 profile to Main / Level 4.0 (for medium) or High / Level 4.2 (for full).
-    5. Force stereo audio (-ac 2) and standard 44.1kHz (-ar 44100).
-    6. Enable +faststart so moov atom is at the beginning.
+    Handles media processing:
+    - 'full': 100% PURE ORIGINAL MASTER.
+      If already H.264 (like TikTok or YouTube MP4), copies streams bit-for-bit with ZERO re-encoding,
+      ZERO compression, and instant execution.
+      If VP9/AV1, transcodes cleanly at CRF 16 (visually lossless) preserving full 4K/fps.
+    - 'medium': WHATSAPP & CHAT OPTIMIZED.
+      Scales video down to max 720p (720x1280 or 1280x720) with lightweight file size (~3-8 MB),
+      clean monotonic timestamps, and Main profile 4.0 so WhatsApp forwarding & Status NEVER hang.
     """
     if not input_path.exists() or input_path.suffix.lower() != '.mp4':
         return input_path
 
     temp_output = input_path.parent / f"opt_{uuid.uuid4().hex[:8]}_{input_path.name}"
+    probe = probe_media(input_path)
 
-    if quality == "medium":
-        # Ultra-compatible profile tailored for WhatsApp Chat, Forwarding & Status
-        crf = '22'
-        audio_br = '192k'
-        profile = 'main'
-        level = '4.0'
-        # Scale to max 720p while preserving aspect ratio and ensuring even dimensions
-        vf_filter = "setpts=PTS-STARTPTS,scale='min(1280,iw)':min'(720,ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2"
+    if quality == "full":
+        # PURE UNTOUCHED ORIGINAL MASTER
+        if probe["is_h264"] and (probe["is_aac"] or probe["a_codec"] is None):
+            logger.info(f"Full quality: preserving 100% original untouched bitstream (-c copy): {input_path.name}")
+            cmd = [
+                'ffmpeg', '-y', '-i', str(input_path),
+                '-c', 'copy',
+                '-movflags', '+faststart',
+                str(temp_output)
+            ]
+        elif probe["is_h264"] and not probe["is_aac"]:
+            logger.info(f"Full quality: keeping video stream untouched (-c:v copy), normalizing audio: {input_path.name}")
+            cmd = [
+                'ffmpeg', '-y', '-i', str(input_path),
+                '-c:v', 'copy',
+                '-c:a', 'aac', '-b:a', '320k',
+                '-movflags', '+faststart',
+                str(temp_output)
+            ]
+        else:
+            logger.info(f"Full quality: transcoding VP9/AV1 to H.264 master quality (CRF 16): {input_path.name}")
+            cmd = [
+                'ffmpeg', '-y',
+                '-max_error_rate', '1.0',
+                '-err_detect', 'ignore_err',
+                '-fflags', '+genpts+discardcorrupt',
+                '-i', str(input_path),
+                '-c:v', 'libx264',
+                '-preset', 'veryfast',
+                '-crf', '16',
+                '-pix_fmt', 'yuv420p',
+                '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                '-fps_mode', 'cfr',
+                '-c:a', 'aac',
+                '-b:a', '320k',
+                '-movflags', '+faststart',
+                str(temp_output)
+            ]
     else:
-        # Full original quality (up to 4K 60fps) with visually lossless master CRF 17
-        crf = '17'
-        audio_br = '320k'
-        profile = 'high'
-        level = '4.2'
-        # Keep exact original resolution, ensure even dimensions
-        vf_filter = "setpts=PTS-STARTPTS,scale=trunc(iw/2)*2:trunc(ih/2)*2"
-
-    logger.info(f"Optimizing video for 100% WhatsApp & cross-platform compatibility (CRF {crf}, {quality}): {input_path.name}")
-
-    cmd = [
-        'ffmpeg', '-y', '-i', str(input_path),
-        '-c:v', 'libx264',
-        '-preset', 'veryfast',
-        '-crf', crf,
-        '-profile:v', profile,
-        '-level', level,
-        '-pix_fmt', 'yuv420p',
-        '-vf', vf_filter,
-        '-fps_mode', 'cfr',
-        '-c:a', 'aac',
-        '-b:a', audio_br,
-        '-ar', '44100',
-        '-ac', '2',
-        '-af', 'asetpts=PTS-STARTPTS',
-        '-movflags', '+faststart',
-        str(temp_output)
-    ]
+        # MEDIUM: WhatsApp Chat & Status Optimized (Max 720p, lightweight, clean timestamps)
+        logger.info(f"Medium quality: downscaling to 720p & optimizing for WhatsApp Chat/Status: {input_path.name}")
+        cmd = [
+            'ffmpeg', '-y',
+            '-max_error_rate', '1.0',
+            '-err_detect', 'ignore_err',
+            '-fflags', '+genpts+discardcorrupt',
+            '-i', str(input_path),
+            '-c:v', 'libx264',
+            '-preset', 'veryfast',
+            '-crf', '23',
+            '-pix_fmt', 'yuv420p',
+            '-profile:v', 'main',
+            '-level', '4.0',
+            '-vf', "scale=w='if(gt(iw,ih),1280,720)':h='if(gt(iw,ih),720,1280)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            '-fps_mode', 'cfr',
+            '-c:a', 'aac',
+            '-b:a', '160k',
+            '-ar', '44100',
+            '-ac', '2',
+            '-movflags', '+faststart',
+            str(temp_output)
+        ]
 
     try:
         subprocess.run(cmd, capture_output=True, check=True)
-        # Replace original file with optimized one
+        # Replace original file with processed one
         input_path.unlink(missing_ok=True)
         temp_output.rename(input_path)
-        logger.info(f"WhatsApp & universal optimization complete for: {input_path.name}")
+        logger.info(f"Processing complete for: {input_path.name}")
         return input_path
     except Exception as e:
-        logger.error(f"FFmpeg optimization error: {e}")
+        logger.error(f"FFmpeg processing error: {e}")
         if temp_output.exists():
             temp_output.unlink(missing_ok=True)
         return input_path
