@@ -70,17 +70,17 @@ def get_media_info(url: str) -> dict:
                     max_fps = fps
 
             if max_height >= 2160:
-                res_label = f"4K Ultra HD ({max_height}p)"
+                res_label = f"4K Ultra HD {max_height}p"
             elif max_height >= 1440:
-                res_label = f"2K Quad HD ({max_height}p)"
+                res_label = f"2K Quad HD {max_height}p"
             elif max_height >= 1080:
-                res_label = f"Full HD ({max_height}p)"
+                res_label = f"Full HD {max_height}p"
             elif max_height >= 720:
-                res_label = f"HD ({max_height}p)"
+                res_label = f"HD {max_height}p"
             elif max_height > 0:
                 res_label = f"{max_height}p"
             else:
-                res_label = "Kualitas Asli"
+                res_label = "Maksimal"
 
             if max_fps and max_fps >= 50:
                 res_label += f" {int(max_fps)}fps"
